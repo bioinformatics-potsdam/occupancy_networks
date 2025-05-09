@@ -81,10 +81,6 @@ COPY im2mesh /app/occupancy_networks/im2mesh
 COPY img /app/occupancy_networks/img
 COPY scripts /app/occupancy_networks/scripts
 
-# 6. COPY Modified Files
-COPY modified_files/config.py /app/occupancy_networks/im2mesh/config.py
-COPY modified_files/checkpoints.py /app/occupancy_networks/im2mesh/checkpoints.py
-
 
 # Add NVIDIA CUDA repository
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends wget
@@ -101,6 +97,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV CUDA_HOME=/usr/local/cuda
 ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# 6. COPY Modified Files
+COPY modified_files/config.py /app/occupancy_networks/im2mesh/config.py
+COPY modified_files/checkpoints.py /app/occupancy_networks/im2mesh/checkpoints.py
 
 
 # 7. Compile the Cython/C++ extensions using the modified setup.py
