@@ -98,5 +98,10 @@ COPY scripts /app/occupancy_networks/scripts
 # compile Cython/C++ extensions
 RUN python3 setup.py build_ext --inplace
 
+# Run the demo during the creation of the container.
+# This way, we don't have to download the models again and again
+# when starting the container.
+RUN python3 generate.py configs/demo.yaml
+
 # run bash when container starts
 CMD ["/bin/bash"]
