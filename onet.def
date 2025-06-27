@@ -1,0 +1,273 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+    Author Your Name <your.email@example.com>
+    Description Build environment for Occupancy Networks (ONET) with Python 3.6 and proper SSL configuration
+
+%environment
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=Etc/UTC
+    export LANG=C.UTF-8
+    export PYTHONUNBUFFERED=1
+    export CUDA_HOME=/usr/local/cuda
+    export PATH=${CUDA_HOME}/bin:/usr/local/bin:${PATH}
+    export LD_LIBRARY_PATH=${CUDA_HOME}/lib64:/usr/local/ssl/lib:/usr/local/lib:${LD_LIBRARY_PATH}
+    # SSL configuration
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    export SSL_CERT_DIR=/etc/ssl/certs
+    export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+    export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+%post
+    # Set environment variables for build
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=Etc/UTC
+    
+    # Update system and install build dependencies INCLUDING ca-certificates
+    apt-get update && apt-get upgrade -y
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc-9 \
+        g++-9 \
+        libffi-dev \
+        libreadline-dev \
+        libsqlite3-dev \
+        libgdbm-dev \
+        libdb5.3-dev \
+        libbz2-dev \
+        libexpat1-dev \
+        liblzma-dev \
+        tk-dev \
+        libncurses5-dev \
+        libncursesw5-dev \
+        xz-utils \
+        zlib1g-dev \
+        wget \
+        git \
+        libomp-dev \
+        ca-certificates \
+        ca-certificates-java \
+        openssl \
+        curl \
+        perl \
+        pkg-config \
+        python3-dev \
+        gdb
+
+    # Update CA certificates
+    update-ca-certificates
+
+    # Use GCC 9 for better compatibility with Python 3.6
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 100
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 100
+
+    # Build OpenSSL 1.1.1 from source (compatible with Python 3.6)
+    cd /tmp
+    wget https://www.openssl.org/source/openssl-1.1.1w.tar.gz
+    tar -xzf openssl-1.1.1w.tar.gz
+    cd openssl-1.1.1w
+    
+    ./config \
+        --prefix=/usr/local/ssl \
+        --openssldir=/usr/local/ssl \
+        shared \
+        zlib \
+        --with-rand-seed=os
+    
+    make -j$(nproc)
+    make install
+    
+    # Link system CA certificates to OpenSSL directory
+    mkdir -p /usr/local/ssl/certs
+    ln -sf /etc/ssl/certs/ca-certificates.crt /usr/local/ssl/cert.pem
+    ln -sf /etc/ssl/certs/* /usr/local/ssl/certs/ 2>/dev/null || true
+    
+    # Update library cache
+    echo "/usr/local/ssl/lib" > /etc/ld.so.conf.d/openssl.conf
+    ldconfig
+
+    # Download and build Python 3.6 from source
+    cd /tmp
+    wget https://www.python.org/ftp/python/3.6.15/Python-3.6.15.tgz
+    tar -xzf Python-3.6.15.tgz
+    cd Python-3.6.15
+    
+    # Configure Python build with custom OpenSSL and CA cert configuration
+    export CPPFLAGS="-I/usr/local/ssl/include"
+    export LDFLAGS="-L/usr/local/ssl/lib -Wl,-rpath,/usr/local/ssl/lib"
+    export LD_LIBRARY_PATH="/usr/local/ssl/lib:$LD_LIBRARY_PATH"
+    export CFLAGS="-fPIC"
+    
+    ./configure \
+        --enable-shared \
+        --with-system-ffi \
+        --with-computed-gotos \
+        --enable-loadable-sqlite-extensions \
+        --with-openssl=/usr/local/ssl \
+        --prefix=/usr/local \
+        --disable-test-modules
+    
+    # Build and install Python 3.6
+    make -j$(nproc)
+    make altinstall
+    
+    # Create symlinks for python3 and pip3
+    ln -sf /usr/local/bin/python3.6 /usr/local/bin/python3
+    ln -sf /usr/local/bin/pip3.6 /usr/local/bin/pip3
+    ln -sf /usr/local/bin/pip3.6 /usr/local/bin/pip
+    
+    # Update library path for shared Python library
+    echo "/usr/local/lib" > /etc/ld.so.conf.d/python3.6.conf
+    ldconfig
+    
+    # Test that Python works with SSL and can verify certificates
+    /usr/local/bin/python3.6 -c "
+import ssl
+import urllib.request
+print('SSL support:', ssl.OPENSSL_VERSION)
+print('Default CA file:', ssl.get_default_verify_paths().cafile)
+print('Default CA dir:', ssl.get_default_verify_paths().capath)
+try:
+    response = urllib.request.urlopen('https://httpbin.org/get', timeout=10)
+    print('HTTPS connection test: SUCCESS')
+except Exception as e:
+    print('HTTPS connection test: FAILED -', str(e))
+"
+    
+    # Create Python script to configure SSL context for PyTorch downloads
+    cat > /usr/local/lib/python3.6/site-packages/ssl_config.py << 'EOF'
+import ssl
+import urllib.request
+
+# Create SSL context that uses system CA certificates
+def create_ssl_context():
+    context = ssl.create_default_context()
+    context.check_hostname = True
+    context.verify_mode = ssl.CERT_REQUIRED
+    # Load system CA certificates
+    context.load_default_certs()
+    try:
+        context.load_verify_locations('/etc/ssl/certs/ca-certificates.crt')
+    except:
+        pass
+    return context
+
+# Monkey patch urllib to use our SSL context
+_original_urlopen = urllib.request.urlopen
+
+def patched_urlopen(url, data=None, timeout=None, **kwargs):
+    if url.startswith('https://'):
+        if 'context' not in kwargs:
+            kwargs['context'] = create_ssl_context()
+    return _original_urlopen(url, data, timeout, **kwargs)
+
+urllib.request.urlopen = patched_urlopen
+EOF
+    
+    # Change to a safe directory before cleanup
+    cd /
+    
+    # Create a working directory for app
+    mkdir -p /app/occupancy_networks
+    
+    # Clean up build artifacts
+    rm -rf /tmp/openssl-1.1.1w*
+    rm -rf /tmp/Python-3.6.15*
+    
+    # Set up environment for Python package installation
+    export PATH="/usr/local/bin:$PATH"
+    export LD_LIBRARY_PATH="/usr/local/ssl/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+    export CFLAGS="-fPIC"
+    export CPPFLAGS="-I/usr/local/include"
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    
+    # Change to app directory for pip operations
+    cd /app
+    
+    # Upgrade pip and install basic build tools
+    /usr/local/bin/python3.6 -m pip install --no-cache-dir --upgrade pip==20.3.4
+    /usr/local/bin/python3.6 -m pip install --no-cache-dir wheel==0.37.1 setuptools==59.6.0
+    
+    # Install Python dependencies with specific versions
+    /usr/local/bin/python3.6 -m pip install --no-cache-dir torch==1.0.1 torchvision==0.2.1
+    /usr/local/bin/python3.6 -m pip install --no-cache-dir numpy==1.15.4
+    
+    # WORKAROUND: Copy NumPy headers to global include path
+    cp -r /usr/local/lib/python3.6/site-packages/numpy/core/include/numpy /usr/local/include/numpy
+    
+    # Install remaining dependencies
+    /usr/local/bin/python3.6 -m pip install --no-cache-dir \
+        scipy==1.1.0 \
+        cython==0.29.2 \
+        h5py==2.9.0 \
+        Pillow==5.3.0 \
+        scikit-image==0.14.1 \
+        imageio==2.4.1 \
+        matplotlib==3.0.3 \
+        pandas==0.23.4 \
+        PyYAML==3.13 \
+        tensorboardX==1.4 \
+        tqdm==4.28.1 \
+        trimesh==2.37.7 \
+        plyfile==0.7 \
+        pytest==4.0.2
+    
+    # Add NVIDIA CUDA repository (for Ubuntu 22.04)
+    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
+    dpkg -i cuda-keyring_1.0-1_all.deb
+    rm cuda-keyring_1.0-1_all.deb
+    
+    # Install CUDA toolkit
+    apt-get update
+    apt-get install -y --no-install-recommends cuda-toolkit-10-1 || \
+    apt-get install -y --no-install-recommends cuda-toolkit-11-0 || \
+    apt-get install -y --no-install-recommends cuda-toolkit-11-8
+    
+    # Final cleanup
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%files
+    eval_meshes.py /app/occupancy_networks/
+    eval.py /app/occupancy_networks/
+    generate.py /app/occupancy_networks/
+    setup.py /app/occupancy_networks/
+    train.py /app/occupancy_networks/
+    configs /app/occupancy_networks/configs
+    demo /app/occupancy_networks/demo
+    external /app/occupancy_networks/external
+    im2mesh /app/occupancy_networks/im2mesh
+    img /app/occupancy_networks/img
+    scripts /app/occupancy_networks/scripts
+
+%post
+    # Final post section for compilation after files are copied
+    cd /app/occupancy_networks
+    
+    # Set up environment for compilation
+    export PATH="/usr/local/bin:$PATH"
+    export LD_LIBRARY_PATH="/usr/local/ssl/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+    export CFLAGS="-fPIC -O2"
+    export CPPFLAGS="-I/usr/local/include -I/usr/local/include/numpy"
+    export LDFLAGS="-L/usr/local/lib"
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    
+    # Inject SSL configuration into generate.py
+    sed -i '1a\
+import sys; sys.path.insert(0, "/usr/local/lib/python3.6/site-packages"); import ssl_config' generate.py
+    
+    echo "=== Compilation successful, running demo ==="
+    # Try to compile first
+    /usr/local/bin/python3.6 setup.py build_ext --inplace
+    
+    # Run the demo to download models with SSL fix
+    /usr/local/bin/python3.6 generate.py configs/demo.yaml
+
+%runscript
+    #!/bin/bash
+    cd /app/occupancy_networks
+    export LD_LIBRARY_PATH="/usr/local/ssl/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+    export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+    exec /bin/bash "$@"
+
