@@ -1,0 +1,106 @@
+ARG UBUNTU_VERSION=20.04
+FROM ubuntu:${UBUNTU_VERSION}
+
+# set environment variables to avoid interactive prompts and ensure UTF-8
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Etc/UTC \
+    LANG=C.UTF-8 \
+    PYTHONUNBUFFERED=1
+
+# install system dependencies
+# - python3.8 and headers for building extensions
+# - python3-pip for package installation
+# - build-essential for C/C++ compilation
+# - git for cloning the repository
+# - libomp-dev needed by pykdtree
+RUN apt-get update
+
+RUN apt-get install -y --no-install-recommends \
+        python3.8 \
+        python3.8-dev \
+        python3-pip \
+        build-essential \
+        git \
+        libomp-dev \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+
+
+# set up python3.8 as the default python3 and pip3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1 && \
+    update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
+
+# upgrade pip and install basic build tools
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir wheel setuptools
+
+# install Python dependencies
+# Python 3.8 does not support torch==1.0.1, the oldest available version is torch==1.4.0
+RUN python3 -m pip install --no-cache-dir torch==1.4.0 torchvision==0.2.1
+RUN python3 -m pip install --no-cache-dir numpy
+
+# Then install scikit-image with no-deps to avoid numpy conflicts (updated from scikit-image==0.14.1)
+RUN python3 -m pip install --no-cache-dir --no-deps scikit-image
+
+# install remaining dependencies
+# RUN python3 -m pip install --no-cache-dir scipy==1.1.0
+RUN python3 -m pip install --no-cache-dir scipy
+RUN python3 -m pip install --no-cache-dir cython
+RUN python3 -m pip install --no-cache-dir h5py
+
+RUN python3 -m pip install --no-cache-dir Pillow
+RUN python3 -m pip install --no-cache-dir imageio
+RUN python3 -m pip install --no-cache-dir matplotlib
+RUN python3 -m pip install --no-cache-dir pandas
+RUN python3 -m pip install --no-cache-dir PyYAML
+RUN python3 -m pip install --no-cache-dir tensorboardX
+RUN python3 -m pip install --no-cache-dir tqdm
+RUN python3 -m pip install --no-cache-dir trimesh
+RUN python3 -m pip install --no-cache-dir plyfile
+RUN python3 -m pip install --no-cache-dir pytest
+
+RUN python3 -m pip install --no-cache-dir pyembree
+
+
+# add NVIDIA CUDA repository
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends wget
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/cuda-keyring_1.0-1_all.deb && \
+    dpkg -i cuda-keyring_1.0-1_all.deb && \
+    rm cuda-keyring_1.0-1_all.deb
+
+# install CUDA toolkit
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cuda-toolkit-10-1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# set CUDA environment variables
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+
+# set final working directory / copy repo into container
+WORKDIR /app/occupancy_networks
+COPY eval_meshes.py eval.py generate.py setup.py train.py /app/occupancy_networks/
+COPY configs /app/occupancy_networks/configs
+COPY demo /app/occupancy_networks/demo
+COPY external /app/occupancy_networks/external
+COPY im2mesh /app/occupancy_networks/im2mesh
+COPY img /app/occupancy_networks/img
+COPY scripts /app/occupancy_networks/scripts
+
+RUN apt-get update && apt-get install -y python3-numpy python3-dev
+
+
+# compile Cython/C++ extensions
+RUN python3 setup.py build_ext --inplace
+
+# Run the demo during the creation of the container.
+# This way, we don't have to download the models again and again
+# when starting the container.
+RUN python3 generate.py configs/demo.yaml
+
+# run bash when container starts
+CMD ["/bin/bash"]
+
