@@ -1,0 +1,126 @@
+# Dockerfile for Occupancy Networks (Ubuntu 22.04, Python 3.12, GPU-enabled)
+FROM nvcr.io/nvidia/cuda:11.8.0-devel-ubuntu22.04
+
+LABEL maintainer="Your Name <your.email@example.com>"
+LABEL description="Build environment for Occupancy Networks (GPU version) with Python 3.12."
+
+# set environment variables to avoid interactive prompts and ensure UTF-8
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Etc/UTC \
+    LANG=C.UTF-8 \
+    PYTHONUNBUFFERED=1
+
+# install system dependencies including Python 3.12 via deadsnakes
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3.12 \
+        python3.12-dev \
+        python3.12-venv \
+        build-essential \
+        git \
+        libomp-dev \
+        curl \
+        pkg-config \
+        ninja-build \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install pip for Python 3.12
+RUN curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
+    python3.12 get-pip.py && \
+    rm get-pip.py
+
+# set up python3.12 as the default python3 and python
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+
+# Create and use a virtual environment
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# upgrade pip and install basic build tools (setuptools replaces distutils)
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# install PyTorch with CUDA 11.8 support
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# install numpy and ensure headers are available
+RUN pip install --no-cache-dir numpy
+
+# --- WORKAROUND: Ensure NumPy headers are in standard location ---
+RUN NUMPY_PATH=$(python3 -c "import numpy; print(numpy.__path__[0])") && \
+    echo "NumPy installed at: $NUMPY_PATH" && \
+    mkdir -p /usr/local/include && \
+    if [ -d "$NUMPY_PATH/core/include/numpy" ]; then \
+        cp -r "$NUMPY_PATH/core/include/numpy" /usr/local/include/; \
+    fi
+
+# install remaining dependencies
+RUN pip install --no-cache-dir \
+        scipy \
+        cython \
+        h5py \
+        Pillow \
+        scikit-image \
+        imageio \
+        matplotlib \
+        pandas \
+        PyYAML \
+        tensorboard \
+        tqdm \
+        trimesh \
+        plyfile \
+        pytest
+
+# CUDA environment variables
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+
+# set final working directory / copy repo into container
+WORKDIR /app/occupancy_networks
+COPY eval_meshes.py eval.py generate.py setup.py train.py /app/occupancy_networks/
+COPY configs /app/occupancy_networks/configs
+COPY demo /app/occupancy_networks/demo
+COPY external /app/occupancy_networks/external
+COPY im2mesh /app/occupancy_networks/im2mesh
+COPY img /app/occupancy_networks/img
+COPY scripts /app/occupancy_networks/scripts
+
+# Create directories for persistent data
+RUN mkdir -p /app/occupancy_networks/cache/models
+RUN mkdir -p /app/occupancy_networks/cache/compiled
+
+# Create compilation and model download script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+cd /app/occupancy_networks\n\
+\n\
+# Check if already compiled\n\
+if [ ! -f cache/compiled/.compiled ]; then\n\
+    echo "Compiling Cython/C++ extensions..."\n\
+    python3 setup.py build_ext --inplace\n\
+    mkdir -p cache/compiled\n\
+    touch cache/compiled/.compiled\n\
+    echo "Compilation complete."\n\
+fi\n\
+\n\
+# Check if model already downloaded\n\
+if [ ! -f cache/models/.downloaded ]; then\n\
+    echo "Setting up model download..."\n\
+    mkdir -p cache/models\n\
+    touch cache/models/.downloaded\n\
+    echo "Model download setup complete."\n\
+fi\n\
+\n\
+exec "$@"' > /usr/local/bin/setup.sh && \
+chmod +x /usr/local/bin/setup.sh
+
+ENTRYPOINT ["/usr/local/bin/setup.sh"]
+CMD ["/bin/bash"]
+
