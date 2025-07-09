@@ -42,7 +42,7 @@ RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://
 # install numpy and ensure headers are available
 RUN pip install --no-cache-dir numpy
 
-# install remaining dependencies including modern pykdtree
+# install remaining dependencies including modern replacements
 RUN pip install --no-cache-dir \
         scipy \
         cython \
@@ -58,7 +58,8 @@ RUN pip install --no-cache-dir \
         trimesh \
         plyfile \
         pytest \
-        pykdtree
+        pykdtree \
+        PyMCubes
 
 # CUDA environment variables
 ENV CUDA_HOME=/usr/local/cuda
@@ -75,8 +76,9 @@ COPY im2mesh /app/occupancy_networks/im2mesh
 COPY img /app/occupancy_networks/img
 COPY scripts /app/occupancy_networks/scripts
 
-# Remove the problematic local pykdtree directory
+# Remove the problematic local libraries
 RUN rm -rf /app/occupancy_networks/im2mesh/utils/libkdtree
+RUN rm -rf /app/occupancy_networks/im2mesh/utils/libmcubes
 
 # Create directories for persistent data
 RUN mkdir -p /app/occupancy_networks/cache/models
