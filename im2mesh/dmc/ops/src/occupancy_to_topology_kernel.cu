@@ -389,7 +389,7 @@ void occupancy_to_topology_kernel_forward(
   dim3 dimGrid(W, H, D);
   dim3 dimBlock(T, 1, 1);
   // lauch the kernel
-  AT_DISPATCH_FLOATING_TYPES(topology.type(), "occ2topo_foward", ([&] {
+  AT_DISPATCH_FLOATING_TYPES(topology.scalar_type(), "occ2topo_foward", ([&] {
     occupancy_to_topology_kernel<scalar_t><<< dimGrid, dimBlock>>>(
         occupancy.data<scalar_t>(),
         topology.data<scalar_t>());
