@@ -4,7 +4,7 @@ from torch import autograd
 import numpy as np
 from tqdm import trange
 import trimesh
-import libmcubes
+import mcubes
 from im2mesh.common import make_3d_grid
 from im2mesh.utils.libsimplify import simplify_mesh
 from im2mesh.utils.libmise import MISE
