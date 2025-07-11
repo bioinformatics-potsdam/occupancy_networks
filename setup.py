@@ -21,6 +21,7 @@ triangle_hash_module = Extension(
     sources=[
         'im2mesh/utils/libmesh/triangle_hash.pyx'
     ],
+    include_dirs=[numpy_include_dir],
     libraries=['m']  # Unix-like specific
 )
 
@@ -30,6 +31,7 @@ mise_module = Extension(
     sources=[
         'im2mesh/utils/libmise/mise.pyx'
     ],
+    include_dirs=[numpy_include_dir]
 )
 
 # simplify (efficient mesh simplification)
@@ -37,7 +39,8 @@ simplify_mesh_module = Extension(
     'im2mesh.utils.libsimplify.simplify_mesh',
     sources=[
         'im2mesh/utils/libsimplify/simplify_mesh.pyx'
-    ]
+    ],
+    include_dirs=[numpy_include_dir]
 )
 
 # voxelization (efficient mesh voxelization)
@@ -46,6 +49,7 @@ voxelize_module = Extension(
     sources=[
         'im2mesh/utils/libvoxelize/voxelize.pyx'
     ],
+    include_dirs=[numpy_include_dir],
     libraries=['m']  # Unix-like specific
 )
 
