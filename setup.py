@@ -12,18 +12,6 @@ import numpy
 numpy_include_dir = numpy.get_include()
 
 # Extensions
-# pykdtree (kd tree)
-pykdtree = Extension(
-    'im2mesh.utils.libkdtree.pykdtree.kdtree',
-    sources=[
-        'im2mesh/utils/libkdtree/pykdtree/kdtree.c',
-        'im2mesh/utils/libkdtree/pykdtree/_kdtree_core.c'
-    ],
-    language='c',
-    extra_compile_args=['-std=c99', '-O3', '-fopenmp'],
-    extra_link_args=['-lgomp'],
-    include_dirs=[numpy_include_dir]
-)
 
 # triangle hash (efficient mesh intersection)
 triangle_hash_module = Extension(
