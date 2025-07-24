@@ -4,7 +4,7 @@ from torch import autograd
 import numpy as np
 from tqdm import trange
 import trimesh
-from im2mesh.utils import libmcubes
+import mcubes
 from im2mesh.common import make_3d_grid
 from im2mesh.utils.libsimplify import simplify_mesh
 from im2mesh.utils.libmise import MISE
@@ -173,10 +173,10 @@ class Generator3D(object):
         t0 = time.time()
         occ_hat_padded = np.pad(
             occ_hat, 1, 'constant', constant_values=-1e6)
-        vertices, triangles = libmcubes.marching_cubes(
+        vertices, triangles = mcubes.marching_cubes(
             occ_hat_padded, threshold)
         stats_dict['time (marching cubes)'] = time.time() - t0
-        # Strange behaviour in libmcubes: vertices are shifted by 0.5
+        # Strange behaviour in mcubes: vertices are shifted by 0.5
         vertices -= 0.5
         # Undo padding
         vertices -= 1
