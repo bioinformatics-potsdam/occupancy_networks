@@ -1,0 +1,38 @@
+name: minimal-onet-py310
+channels:
+  - nvidia/label/cuda-11.8.0
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10.*
+  - pip
+  - cuda-nvcc=11.8.*
+  - cuda-toolkit=11.8.*
+  - pytorch=2.5.*
+  - pytorch-cuda=11.8.*
+  - torchaudio
+  - torchvision
+  - cmake
+  - gcc_linux-64=11.*
+  - gxx_linux-64=11.*
+  - ninja
+  - cython
+  - pykdtree
+  - pip:
+    - numpy
+    - scipy
+    - h5py
+    - Pillow
+    - scikit-image
+    - imageio
+    - matplotlib
+    - pandas
+    - PyYAML
+    - tensorboard
+    - tqdm
+    - trimesh
+    - plyfile
+    - pytest
+    - PyMCubes
